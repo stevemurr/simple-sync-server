@@ -35,8 +35,6 @@ handler/
   handler_test.go HTTP integration tests
 ```
 
-Legacy Python files (`sync_server.py`, `requirements.txt`, `run.sh`) are still present but no longer the primary implementation.
-
 ## Architecture decisions
 
 - **Store interface** (`store.Store`): all data access goes through this interface. To add a new backend, implement the interface and add a case in `store/factory.go`.
