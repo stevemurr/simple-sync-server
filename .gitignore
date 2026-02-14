@@ -1,7 +1,5 @@
-# Virtual environment
-venv/
-.venv/
-env/
+# Binary
+sync-server
 
 # Data directory (contains user data)
 data/
@@ -9,7 +7,18 @@ data/
 # Logs
 *.log
 
-# Python
+# Go
+*.exe
+*.exe~
+*.dll
+*.dylib
+*.test
+*.out
+
+# Python (legacy)
+venv/
+.venv/
+env/
 __pycache__/
 *.py[cod]
 *$py.class
