@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 )
 
 // Validate checks a document against a JSON Schema (draft-07 subset).
@@ -205,14 +206,15 @@ func validateArray(schema map[string]any, arr []any, path string) error {
 }
 
 func validateString(schema map[string]any, s string, path string) error {
+	charLen := utf8.RuneCountInString(s)
 	if v, ok := toFloat(schema["minLength"]); ok {
-		if float64(len(s)) < v {
-			return fmt.Errorf("%s: string length %d is less than minLength %v", path, len(s), v)
+		if float64(charLen) < v {
+			return fmt.Errorf("%s: string length %d is less than minLength %v", path, charLen, v)
 		}
 	}
 	if v, ok := toFloat(schema["maxLength"]); ok {
-		if float64(len(s)) > v {
-			return fmt.Errorf("%s: string length %d is greater than maxLength %v", path, len(s), v)
+		if float64(charLen) > v {
+			return fmt.Errorf("%s: string length %d is greater than maxLength %v", path, charLen, v)
 		}
 	}
 	return nil

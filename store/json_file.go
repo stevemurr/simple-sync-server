@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,7 +48,7 @@ func (s *JsonFileStore) loadFile(path string) (map[string]any, error) {
 	}
 	var result map[string]any
 	if err := json.Unmarshal(data, &result); err != nil {
-		return map[string]any{}, nil
+		return nil, fmt.Errorf("corrupt JSON in %s: %w", path, err)
 	}
 	return result, nil
 }
@@ -128,7 +129,7 @@ func (s *JsonFileStore) ListCollections() ([]string, error) {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return []string{}, nil
 		}
 		return nil, err
 	}

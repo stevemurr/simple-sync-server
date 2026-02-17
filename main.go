@@ -21,9 +21,23 @@ func env(key, fallback string) string {
 }
 
 // corsMiddleware wraps an http.Handler with CORS headers.
-func corsMiddleware(next http.Handler, origins string) http.Handler {
+func corsMiddleware(next http.Handler, allowedOrigins []string) http.Handler {
+	// Fast path: wildcard allows everything.
+	allowAll := len(allowedOrigins) == 1 && allowedOrigins[0] == "*"
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", origins)
+		origin := r.Header.Get("Origin")
+		if allowAll {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if origin != "" {
+			for _, o := range allowedOrigins {
+				if strings.TrimSpace(o) == origin {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Vary", "Origin")
+					break
+				}
+			}
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -43,17 +57,13 @@ func main() {
 	backend := env("STORE_BACKEND", "json")
 	origins := env("ALLOWED_ORIGINS", "*")
 
-	// Handle multiple origins - use first one for the header
-	// (for full multi-origin support, check Origin header at request time)
-	origin := strings.Split(origins, ",")[0]
-
 	s, err := store.New(backend, dataDir)
 	if err != nil {
 		log.Fatalf("failed to create store (backend=%s): %v", backend, err)
 	}
 
 	h := handler.New(s)
-	wrapped := corsMiddleware(h, origin)
+	wrapped := corsMiddleware(h, strings.Split(origins, ","))
 
 	addr := fmt.Sprintf("%s:%s", host, port)
 	log.Printf("Simple Sync Server starting on %s (store=%s, data=%s)", addr, backend, dataDir)
