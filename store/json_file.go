@@ -107,6 +107,26 @@ func (s *JsonFileStore) Put(collection, key string, data map[string]any) error {
 	return s.saveFile(path, coll)
 }
 
+func (s *JsonFileStore) PutIfNewer(collection, key string, data map[string]any) (map[string]any, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path := s.collectionPath(collection)
+	coll, err := s.loadCollection(path)
+	if err != nil {
+		return nil, false, err
+	}
+	if existing, ok := coll[key]; ok {
+		if !IsNewer(data, existing) {
+			return existing, false, nil
+		}
+	}
+	coll[key] = data
+	if err := s.saveFile(path, coll); err != nil {
+		return nil, false, err
+	}
+	return data, true, nil
+}
+
 func (s *JsonFileStore) Delete(collection, key string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

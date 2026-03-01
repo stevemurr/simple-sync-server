@@ -70,6 +70,23 @@ func (m *MemoryStore) Put(collection, key string, data map[string]any) error {
 	return nil
 }
 
+func (m *MemoryStore) PutIfNewer(collection, key string, data map[string]any) (map[string]any, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	coll, ok := m.collections[collection]
+	if ok {
+		if existing, exists := coll[key]; exists {
+			if !IsNewer(data, existing) {
+				return deepCopy(existing), false, nil
+			}
+		}
+	} else {
+		m.collections[collection] = make(map[string]map[string]any)
+	}
+	m.collections[collection][key] = deepCopy(data)
+	return deepCopy(data), true, nil
+}
+
 func (m *MemoryStore) Delete(collection, key string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

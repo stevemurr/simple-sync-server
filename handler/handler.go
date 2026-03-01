@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/stevemurr/simple-sync-server/schema"
@@ -77,16 +76,7 @@ func readJSON(r *http.Request, v any) error {
 }
 
 func parseISO(s string) (time.Time, error) {
-	s = strings.Replace(s, "Z", "+00:00", 1)
-	// Try RFC3339 first
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t, nil
-	}
-	// Try without timezone
-	if t, err := time.Parse("2006-01-02T15:04:05", s); err == nil {
-		return t.UTC(), nil
-	}
-	return time.Time{}, fmt.Errorf("invalid timestamp: %s", s)
+	return store.ParseTimestamp(s)
 }
 
 // ---------- status endpoints ----------
@@ -226,30 +216,13 @@ func (h *Handler) doUpsertItem(w http.ResponseWriter, r *http.Request, collectio
 		return
 	}
 
-	// Last-write-wins: only update if incoming is newer
-	existing, err := h.store.Get(collection, key)
+	// Atomic last-write-wins: only update if incoming is newer
+	stored, _, err := h.store.PutIfNewer(collection, key, incoming)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if existing != nil {
-		if existingTS, ok := existing["updatedAt"].(string); ok {
-			if incomingTS, ok := incoming["updatedAt"].(string); ok {
-				et, err1 := parseISO(existingTS)
-				nt, err2 := parseISO(incomingTS)
-				if err1 == nil && err2 == nil && !nt.After(et) {
-					writeJSON(w, http.StatusOK, existing)
-					return
-				}
-			}
-		}
-	}
-
-	if err := h.store.Put(collection, key, incoming); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, incoming)
+	writeJSON(w, http.StatusOK, stored)
 }
 
 func (h *Handler) doDeleteItem(w http.ResponseWriter, _ *http.Request, collection, key string) {
@@ -303,7 +276,7 @@ func (h *Handler) doSync(w http.ResponseWriter, r *http.Request, collection stri
 		incoming = req.Notes
 	}
 
-	serverTime := time.Now().UTC().Format(time.RFC3339)
+	serverTime := time.Now().UTC().Format(time.RFC3339Nano)
 
 	var lastSync *time.Time
 	if req.LastSyncTime != nil && *req.LastSyncTime != "" {
@@ -311,12 +284,6 @@ func (h *Handler) doSync(w http.ResponseWriter, r *http.Request, collection stri
 		if err == nil {
 			lastSync = &t
 		}
-	}
-
-	serverDocs, err := h.store.GetAll(collection)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
 	}
 
 	// Determine the key field: use "dateKey" if present (backward compat), else "key", else "id"
@@ -329,7 +296,7 @@ func (h *Handler) doSync(w http.ResponseWriter, r *http.Request, collection stri
 		return ""
 	}
 
-	// Merge incoming
+	// Merge incoming using atomic PutIfNewer per item
 	for _, doc := range incoming {
 		key := keyOf(doc)
 		if key == "" {
@@ -342,24 +309,17 @@ func (h *Handler) doSync(w http.ResponseWriter, r *http.Request, collection stri
 			return
 		}
 
-		newTS, _ := doc["updatedAt"].(string)
-		newTime, err := parseISO(newTS)
-		if err != nil {
-			continue
-		}
-
-		if existing, ok := serverDocs[key]; ok {
-			existTS, _ := existing["updatedAt"].(string)
-			existTime, err := parseISO(existTS)
-			if err == nil && !newTime.After(existTime) {
-				continue
-			}
-		}
-		serverDocs[key] = doc
-		if err := h.store.Put(collection, key, doc); err != nil {
+		if _, _, err := h.store.PutIfNewer(collection, key, doc); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+	}
+
+	// Get all documents after merging for the response
+	serverDocs, err := h.store.GetAll(collection)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
 	// Build response: items newer than lastSyncTime

@@ -113,6 +113,40 @@ func (s *SqliteStore) Put(collection, key string, data map[string]any) error {
 	return err
 }
 
+func (s *SqliteStore) PutIfNewer(collection, key string, data map[string]any) (map[string]any, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Read existing within the same lock
+	var raw string
+	err := s.db.QueryRow(
+		"SELECT data FROM documents WHERE collection = ? AND key = ?",
+		collection, key,
+	).Scan(&raw)
+	if err == nil {
+		var existing map[string]any
+		if jsonErr := json.Unmarshal([]byte(raw), &existing); jsonErr == nil {
+			if !IsNewer(data, existing) {
+				return existing, false, nil
+			}
+		}
+	}
+
+	b, err := json.Marshal(data)
+	if err != nil {
+		return nil, false, err
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO documents (collection, key, data) VALUES (?, ?, ?)
+		 ON CONFLICT(collection, key) DO UPDATE SET data = excluded.data`,
+		collection, key, string(b),
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	return data, true, nil
+}
+
 func (s *SqliteStore) Delete(collection, key string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
